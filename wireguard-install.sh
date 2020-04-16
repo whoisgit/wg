@@ -13,17 +13,15 @@ function addClient () {
         ENDPOINT="$SERVER_PUB_IP:$SERVER_PORT"
     fi
 
-    CLIENT_WG_IPV4="10.66.66.2"
+    CLIENT_WG_IPV4="10.100.100.2"
     read -rp "Client's WireGuard IPv4 " -e -i "$CLIENT_WG_IPV4" CLIENT_WG_IPV4
 
-    CLIENT_WG_IPV6="fd42:42:42::2"
-    read -rp "Client's WireGuard IPv6 " -e -i "$CLIENT_WG_IPV6" CLIENT_WG_IPV6
 
     # Adguard DNS by default
-    CLIENT_DNS_1="176.103.130.130"
+    CLIENT_DNS_1="8.8.8.8"
     read -rp "First DNS resolver to use for the client: " -e -i "$CLIENT_DNS_1" CLIENT_DNS_1
 
-    CLIENT_DNS_2="176.103.130.131"
+    CLIENT_DNS_2="8.8.4.4"
     read -rp "Second DNS resolver to use for the client: " -e -i "$CLIENT_DNS_2" CLIENT_DNS_2
 
     CLIENT_NAME=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 10 ; echo '')
@@ -35,20 +33,20 @@ function addClient () {
     # Create client file and add the server as a peer
     echo "[Interface]
 PrivateKey = $CLIENT_PRIV_KEY
-Address = $CLIENT_WG_IPV4/24,$CLIENT_WG_IPV6/64
+Address = $CLIENT_WG_IPV4/24
 DNS = $CLIENT_DNS_1,$CLIENT_DNS_2
 
 [Peer]
 PublicKey = $SERVER_PUB_KEY
 PresharedKey = $SYMM_PRE_KEY
 Endpoint = $ENDPOINT
-AllowedIPs = 0.0.0.0/0,::/0" >> "$HOME/$SERVER_WG_NIC-client-$CLIENT_NAME.conf"
+AllowedIPs = 0.0.0.0/0" >> "$HOME/$SERVER_WG_NIC-client-$CLIENT_NAME.conf"
 
     # Add the client as a peer to the server
     echo -e "\n[Peer]
 PublicKey = $CLIENT_PUB_KEY
 PresharedKey = $SYMM_PRE_KEY
-AllowedIPs = $CLIENT_WG_IPV4/32,$CLIENT_WG_IPV6/128" >> "/etc/wireguard/$SERVER_WG_NIC.conf"
+AllowedIPs = $CLIENT_WG_IPV4/32" >> "/etc/wireguard/$SERVER_WG_NIC.conf"
 
     systemctl restart "wg-quick@$SERVER_WG_NIC"
 
@@ -118,11 +116,9 @@ read -rp "Public interface: " -e -i "$SERVER_PUB_NIC" SERVER_PUB_NIC
 SERVER_WG_NIC="wg0"
 read -rp "WireGuard interface name: " -e -i "$SERVER_WG_NIC" SERVER_WG_NIC
 
-SERVER_WG_IPV4="10.66.66.1"
+SERVER_WG_IPV4="10.100.100.1"
 read -rp "Server's WireGuard IPv4: " -e -i "$SERVER_WG_IPV4" SERVER_WG_IPV4
 
-SERVER_WG_IPV6="fd42:42:42::1"
-read -rp "Server's WireGuard IPv6: " -e -i "$SERVER_WG_IPV6" SERVER_WG_IPV6
 
 # Generate random number within private ports range
 SERVER_PORT=$(shuf -i49152-65535 -n1)
@@ -170,7 +166,6 @@ echo "SERVER_PUB_IP=$SERVER_PUB_IP
 SERVER_PUB_NIC=$SERVER_PUB_NIC
 SERVER_WG_NIC=$SERVER_WG_NIC
 SERVER_WG_IPV4=$SERVER_WG_IPV4
-SERVER_WG_IPV6=$SERVER_WG_IPV6
 SERVER_PORT=$SERVER_PORT
 SERVER_PRIV_KEY=$SERVER_PRIV_KEY
 SERVER_PUB_KEY=$SERVER_PUB_KEY
@@ -180,23 +175,22 @@ source /etc/wireguard/params
 
 # Add server interface
 echo "[Interface]
-Address = $SERVER_WG_IPV4/24,$SERVER_WG_IPV6/64
+Address = $SERVER_WG_IPV4/24
 ListenPort = $SERVER_PORT
 PrivateKey = $SERVER_PRIV_KEY" > "/etc/wireguard/$SERVER_WG_NIC.conf"
 
 if [ -x "$(command -v firewall-cmd)" ]; then
     FIREWALLD_IPV4_ADDRESS=$(echo "$SERVER_WG_IPV4" | cut -d"." -f1-3)".0"
-    FIREWALLD_IPV6_ADDRESS=$(echo "$SERVER_WG_IPV6" | sed 's/:[^:]*$/:0/')
-    echo "PostUp = firewall-cmd --add-port $SERVER_PORT/udp && firewall-cmd --add-rich-rule='rule family=ipv4 source address=$FIREWALLD_IPV4_ADDRESS/24 masquerade' && firewall-cmd --add-rich-rule='rule family=ipv6 source address=$FIREWALLD_IPV6_ADDRESS/24 masquerade'
-PostDown = firewall-cmd --remove-port $SERVER_PORT/udp && firewall-cmd --remove-rich-rule='rule family=ipv4 source address=$FIREWALLD_IPV4_ADDRESS/24 masquerade' && firewall-cmd --remove-rich-rule='rule family=ipv6 source address=$FIREWALLD_IPV6_ADDRESS/24 masquerade'" >> "/etc/wireguard/$SERVER_WG_NIC.conf"
+        echo "PostUp = firewall-cmd --add-port $SERVER_PORT/udp && firewall-cmd --add-rich-rule='rule family=ipv4 source address=$FIREWALLD_IPV4_ADDRESS/24 masquerade'
+PostDown = firewall-cmd --remove-port $SERVER_PORT/udp && firewall-cmd --remove-rich-rule='rule family=ipv4 source address=$FIREWALLD_IPV4_ADDRESS/24 masquerade'" >> "/etc/wireguard/$SERVER_WG_NIC.conf"
 else
-    echo "PostUp = iptables -A FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -A POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE; ip6tables -A FORWARD -i $SERVER_WG_NIC -j ACCEPT; ip6tables -t nat -A POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE
-PostDown = iptables -D FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -D POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE; ip6tables -D FORWARD -i $SERVER_WG_NIC -j ACCEPT; ip6tables -t nat -D POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE" >> "/etc/wireguard/$SERVER_WG_NIC.conf"
+    echo "PostUp = iptables -A FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -A POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE
+PostDown = iptables -D FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -D POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE" >> "/etc/wireguard/$SERVER_WG_NIC.conf"
 fi
 
 # Enable routing on the server
 echo "net.ipv4.ip_forward = 1
-net.ipv6.conf.all.forwarding = 1" > /etc/sysctl.d/wg.conf
+" > /etc/sysctl.d/wg.conf
 
 sysctl --system
 
